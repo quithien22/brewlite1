@@ -6,7 +6,7 @@ REST API cho ứng dụng đặt cà phê không dùng tiền mặt. Công ngh�
 
 ```bash
 cd backend
-cp .env.example .env          # chỉnh DATABASE_URL / JWT_SECRET nếu cần
+cp ../.env.example .env       # dùng các biến BACKEND; chỉnh DATABASE_URL / JWT_SECRET nếu cần
 npm install
 npx prisma generate
 npx prisma db push            # tạo bảng
@@ -71,6 +71,4 @@ npm test
 
 ## Biến môi trường
 
-Xem `.env.example`: `DATABASE_URL`, `JWT_SECRET`, `JWT_EXPIRES_IN`, `PORT`, `FRONTEND_URL` (CORS, nhiều origin cách nhau dấu phẩy).
-
-> Lưu ý: thư mục này còn các file sinh ra từ `create-next-app` (`app/`, `next.config.ts`, `eslint.config.mjs`, `next-env.d.ts`, `AGENTS.md`, `public/`, `.next/`). Backend NestJS không dùng chúng (`tsconfig.build.json` chỉ biên dịch `src/`), có thể xóa an toàn.
+Xem `../.env.example` (phần BACKEND): `DATABASE_URL`, `JWT_SECRET`, `JWT_EXPIRES_IN`, `PORT`, `FRONTEND_URL` (CORS, nhiều origin cách nhau dấu phẩy).

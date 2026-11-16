@@ -5,15 +5,15 @@ Giao diện web đặt cà phê không dùng tiền mặt. Công nghệ: **Next.
 ## Chạy nhanh
 
 ```bash
-cd frontend/my-app
-cp .env.example .env.local     # NEXT_PUBLIC_API_URL=http://localhost:4000
+cd frontend
+cp ../.env.example .env.local  # chỉ cần dòng NEXT_PUBLIC_API_URL=http://localhost:4000
 npm install
 npm run dev                    # http://localhost:3000
 ```
 
 Backend phải đang chạy (xem `backend/README.md`). Tài khoản demo: `demo@brewlite.vn` / `Demo1234`.
 
-## Các trang (khớp thư mục `ban_thiet_ke`)
+## Các trang
 
 | Route | Màn hình thiết kế |
 |---|---|

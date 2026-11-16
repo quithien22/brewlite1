@@ -1,12 +1,10 @@
-# BrewLite – Bài tập lớn Công nghệ Phần mềm
-
+# BrewLite – Ứng dụng đặt cà phê không dùng tiền mặt
 Ứng dụng đặt cà phê không dùng tiền mặt, làm theo quy trình Agile Scrum. MVP đi từ **chọn sản phẩm → giỏ hàng → thanh toán → xác nhận đơn**.
 
 | Thư mục | Nội dung |
 |---|---|
 | `backend/` | NestJS + Prisma + PostgreSQL (REST API, JWT) — xem `backend/README.md` |
-| `frontend/my-app/` | Next.js + TailwindCSS + Zustand — xem `frontend/my-app/README.md` |
-| `ban_thiet_ke/` | Bản thiết kế giao diện (14 màn hình desktop) |
+| `frontend/` | Next.js + TailwindCSS + Zustand — xem `frontend/README.md` |
 | `docker-compose.yml` | Chạy cả 3: frontend, backend, DB |
 
 ## Chạy bằng Docker (khuyến nghị để demo)
@@ -31,13 +29,13 @@ docker compose down
 
 # 2) Backend
 cd backend
-cp .env.example .env
+cp ../.env.example .env   
 npm install && npx prisma generate && npx prisma db push && npm run seed
 npm run start:dev            # :4000
 
 # 3) Frontend (terminal khác)
-cd frontend/my-app
-cp .env.example .env.local
+cd frontend
+cp ../.env.example .env.local    
 npm install && npm run dev   # :3000
 
 #4) Mở frisma studio 
@@ -60,7 +58,7 @@ Cập nhật tiến độ đơn (barista) bằng `PATCH /orders/:id/status` vớ
 
 | # | Task | Vị trí |
 |---|---|---|
-| 1 | Khởi tạo dự án, README, `.env.example`, Git | thư mục gốc, `backend/`, `frontend/my-app/` |
+| 1 | Khởi tạo dự án, README, `.env.example`, Git | thư mục gốc (`.env.example` dùng chung cho `backend/` và `frontend/`) |
 | 2 | API danh sách sản phẩm | `GET /products` |
 | 3 | Trang Menu | `/menu` |
 | 4 | Chi tiết & tùy chọn sản phẩm | `/menu/[id]` |
