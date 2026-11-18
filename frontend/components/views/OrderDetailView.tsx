@@ -11,6 +11,7 @@ import { api, ApiError } from "@/lib/api";
 import {
   describeOptions,
   formatDateTime,
+  formatTime,
   METHOD_LABEL,
   STATUS_LABEL,
   vnd,
@@ -120,6 +121,7 @@ export default function OrderDetailView({ id }: { id: number }) {
       reload();
     } catch (err) {
       setActionError(err instanceof ApiError ? err.message : "Đã có lỗi xảy ra");
+      reload(); // cập nhật lại (ví dụ đã quá hạn thì ẩn nút hủy)
     } finally {
       setBusy(false);
     }
@@ -145,6 +147,27 @@ export default function OrderDetailView({ id }: { id: number }) {
               {order.status === "READY" && (
                 <p className="mt-4 rounded-lg bg-[#E3EEF9] px-4 py-3 text-sm font-semibold text-[#2B5C8F]">
                   Đồ uống của bạn đã sẵn sàng. Mời tới quầy nhận nhé!
+                </p>
+              )}
+              {order.status === "PENDING" && (
+                <p className="mt-4 rounded-lg bg-[#FFF3D6] px-4 py-3 text-sm font-semibold text-[#8A5A00]">
+                  Đơn đang chờ thanh toán. Tồn kho được giữ cho bạn trong thời gian ngắn,
+                  đơn chưa thanh toán sẽ tự hủy sau 15 phút.
+                </p>
+              )}
+              {order.status === "PAID" && order.cancelUntil && (
+                <p className="mt-4 rounded-lg bg-[#E6F3EA] px-4 py-3 text-sm text-[#1E7A43]">
+                  {order.canCancel ? (
+                    <>
+                      Đặt nhầm hoặc đặt dư? Bạn có thể hủy đơn và được hoàn tiền đến{" "}
+                      <b>{formatTime(order.cancelUntil)}</b>.
+                    </>
+                  ) : (
+                    <>
+                      Đã quá thời hạn hủy đơn ({formatTime(order.cancelUntil)}). Vui lòng
+                      liên hệ quầy nếu cần hỗ trợ.
+                    </>
+                  )}
                 </p>
               )}
             </section>

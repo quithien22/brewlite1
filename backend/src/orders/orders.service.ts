@@ -5,15 +5,29 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
+import { PAYMENT_PENDING_TTL_MS } from '../common/constants';
 import { POINT_VALUE, calcUnitPrice, earnedPoints } from '../common/pricing';
 import { PrismaService } from '../prisma/prisma.service';
 import { PromotionsService } from '../promotions/promotions.service';
 import { CreateOrderDto } from './dto/create-order.dto';
 import { ListOrdersQuery, UpdateOrderStatusDto } from './dto/order-query.dto';
 import { releaseStock, reserveStock } from './inventory';
-import { ORDER_INCLUDE, mapOrder } from './order.mapper';
+import { ORDER_INCLUDE, mapOrder, paidCancelDeadline } from './order.mapper';
 import { canTransition } from './order-state-machine';
 import { transitionOrder } from './order-transitions';
+
+/** Đơn kèm các trường cần để hủy / hoàn tài nguyên. */
+interface CancellableOrder {
+  id: number;
+  userId: number;
+  status: 'PENDING' | 'PAID' | 'PREPARING' | 'READY' | 'COMPLETED' | 'PAYMENT_FAILED' | 'CANCELLED';
+  version: number;
+  couponCode: string | null;
+  pointsUsed: number;
+  pointsEarned: number;
+  pointsAwarded: boolean;
+  items: { productId: number; qty: number }[];
+}
 
 @Injectable()
 export class OrdersService {
@@ -199,14 +213,66 @@ export class OrdersService {
   }
 
   /**
+   * Chuyển CANCELLED + hoàn tồn kho, lượt mã, điểm đã dùng;
+   * nếu đơn đã thanh toán thì thu hồi điểm đã cộng và đánh dấu hoàn tiền.
+   */
+  private async cancelInTx(
+    tx: Prisma.TransactionClient,
+    order: CancellableOrder,
+  ) {
+    await transitionOrder(tx, order, 'CANCELLED');
+
+    await releaseStock(tx, order.items);
+    if (order.couponCode) {
+      await this.promotions.release(tx, order.couponCode);
+    }
+
+    // Hoàn điểm đã dùng; thu hồi điểm đã cộng (nếu có)
+    let pointsDelta = order.pointsUsed;
+    if (order.pointsAwarded) pointsDelta -= order.pointsEarned;
+    if (pointsDelta !== 0) {
+      const user = await tx.user.findUniqueOrThrow({
+        where: { id: order.userId },
+        select: { loyaltyPoints: true },
+      });
+      await tx.user.update({
+        where: { id: order.userId },
+        data: { loyaltyPoints: Math.max(0, user.loyaltyPoints + pointsDelta) },
+      });
+    }
+
+    await tx.payment.updateMany({
+      where: { orderId: order.id, status: 'SUCCESS' },
+      data: { status: 'REFUNDED' },
+    });
+  }
+
+  /** Đơn đang có giao dịch PENDING còn hạn thì không được tự hủy. */
+  private async hasLivePendingPayment(
+    tx: Prisma.TransactionClient,
+    orderId: number,
+  ) {
+    const n = await tx.payment.count({
+      where: {
+        orderId,
+        status: 'PENDING',
+        createdAt: { gt: new Date(Date.now() - PAYMENT_PENDING_TTL_MS) },
+      },
+    });
+    return n > 0;
+  }
+
+  /**
    * POST /orders/:id/cancel — khách hủy đơn khi cửa hàng chưa pha chế.
+   * Đơn chưa thanh toán: hủy được ngay.
+   * Đơn đã thanh toán (PAID): chỉ hủy được trong REFUND_WINDOW_MINUTES kể từ lúc thanh toán.
    * Hoàn kho, hoàn mã, hoàn điểm; nếu đã thanh toán thì đánh dấu hoàn tiền.
    */
   async cancel(userId: number, id: number) {
     await this.prisma.$transaction(async (tx) => {
       const order = await tx.order.findFirst({
         where: { id, userId },
-        include: { items: true, payments: true },
+        include: { items: true, statusLogs: { orderBy: { id: 'asc' } } },
       });
       if (!order) throw new NotFoundException('Không tìm thấy đơn hàng');
 
@@ -218,34 +284,61 @@ export class OrdersService {
         );
       }
 
-      await transitionOrder(tx, order, 'CANCELLED');
-
-      await releaseStock(tx, order.items);
-      if (order.couponCode) {
-        await this.promotions.release(tx, order.couponCode);
+      // Ràng buộc thời gian: đơn đã thanh toán chỉ được hủy trong thời hạn cho phép
+      if (order.status === 'PAID') {
+        const deadline = paidCancelDeadline(order);
+        if (!deadline || deadline.getTime() <= Date.now()) {
+          throw new BadRequestException(
+            'Đơn đã thanh toán quá thời hạn cho phép hủy, vui lòng liên hệ quầy',
+          );
+        }
       }
 
-      // Hoàn điểm đã dùng; thu hồi điểm đã cộng (nếu có)
-      let pointsDelta = order.pointsUsed;
-      if (order.pointsAwarded) pointsDelta -= order.pointsEarned;
-      if (pointsDelta !== 0) {
-        const user = await tx.user.findUniqueOrThrow({
-          where: { id: userId },
-          select: { loyaltyPoints: true },
-        });
-        await tx.user.update({
-          where: { id: userId },
-          data: { loyaltyPoints: Math.max(0, user.loyaltyPoints + pointsDelta) },
-        });
-      }
-
-      await tx.payment.updateMany({
-        where: { orderId: id, status: 'SUCCESS' },
-        data: { status: 'REFUNDED' },
-      });
+      await this.cancelInTx(tx, order);
     });
 
     return this.findOneForUser(userId, id);
+  }
+
+  /**
+   * Tự hủy đơn PENDING / PAYMENT_FAILED quá `minutes` phút để trả lại tồn kho, lượt mã, điểm.
+   * Bỏ qua đơn đang có giao dịch thanh toán đang xử lý. Trả về số đơn đã hủy.
+   */
+  async expireStale(minutes: number, now = new Date()): Promise<number> {
+    const cutoff = new Date(now.getTime() - minutes * 60_000);
+    const candidates = await this.prisma.order.findMany({
+      where: {
+        status: { in: ['PENDING', 'PAYMENT_FAILED'] },
+        createdAt: { lt: cutoff },
+      },
+      select: { id: true },
+      take: 100,
+    });
+
+    let cancelled = 0;
+    for (const { id } of candidates) {
+      try {
+        const done = await this.prisma.$transaction(async (tx) => {
+          const order = await tx.order.findUnique({
+            where: { id },
+            include: { items: true },
+          });
+          if (
+            !order ||
+            (order.status !== 'PENDING' && order.status !== 'PAYMENT_FAILED')
+          ) {
+            return false;
+          }
+          if (await this.hasLivePendingPayment(tx, id)) return false;
+          await this.cancelInTx(tx, order);
+          return true;
+        });
+        if (done) cancelled++;
+      } catch {
+        // Đơn vừa được cập nhật ở nơi khác (khách thanh toán / hủy): thử lại ở lượt sau
+      }
+    }
+    return cancelled;
   }
 
   /** PATCH /orders/:id/status — barista cập nhật tiến độ (STAFF) */

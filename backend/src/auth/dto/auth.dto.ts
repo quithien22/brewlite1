@@ -8,6 +8,7 @@ import {
   MinLength,
 } from 'class-validator';
 
+/** AC-01.4: email chuẩn hóa chữ thường, cắt khoảng trắng trước khi lưu. */
 const normalizeEmail = ({ value }: { value: unknown }) =>
   typeof value === 'string' ? value.trim().toLowerCase() : value;
 
@@ -21,8 +22,9 @@ export class RegisterDto {
   @IsEmail({}, { message: 'Email không hợp lệ' })
   email: string;
 
+  /** 0xxxxxxxxx hoặc +84xxxxxxxxx (AC-01.3) */
   @IsOptional()
-  @Matches(/^(0|\+84)\d{9,10}$/, { message: 'Số điện thoại không hợp lệ' })
+  @Matches(/^(0\d{9}|\+84\d{9})$/, { message: 'Số điện thoại không hợp lệ' })
   phone?: string;
 
   @IsString()

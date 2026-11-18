@@ -113,6 +113,8 @@ export interface Order {
   pointsEarned: number;
   pointsAwarded: boolean;
   canCancel: boolean;
+  /** Hạn hủy đơn đã thanh toán (ISO). null nếu đơn chưa thanh toán hoặc không áp dụng. */
+  cancelUntil: string | null;
   createdAt: string;
   updatedAt: string;
   items: OrderItem[];
